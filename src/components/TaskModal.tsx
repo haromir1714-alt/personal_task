@@ -19,6 +19,7 @@ export function TaskModal({
   const initial: Fields = {
     title: original?.title ?? "",
     due: original?.due ?? defaultDue ?? null,
+    startDate: original?.startDate ?? defaultDue ?? null,
     priority: original?.priority ?? "normal",
     categoryId: original?.categoryId ?? null,
     notes: original?.notes ?? "",
@@ -110,9 +111,19 @@ export function TaskModal({
         </label>
         <div className="form-grid">
           <label>
-            마감일
+            시작일
             <input
               type="date"
+              aria-label="시작일"
+              value={form.startDate ?? ""}
+              onChange={(e) => update("startDate", e.target.value || null)}
+            />
+          </label>
+          <label>
+            종료일 (마감일)
+            <input
+              type="date"
+              aria-label="마감일"
               value={form.due ?? ""}
               onChange={(e) => update("due", e.target.value || null)}
             />
@@ -159,6 +170,10 @@ export function TaskModal({
             </select>
           </label>
         </div>
+        <p className="hint">
+          시작일과 종료일을 입력하면 기간 일정으로 표시됩니다. 종료일만 입력하면
+          하루 일정입니다. 반복 일정은 완료 시 다음 회차를 생성합니다.
+        </p>
         <label>
           상세 메모
           <textarea

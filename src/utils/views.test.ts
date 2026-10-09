@@ -8,6 +8,7 @@ const task = (id: string, changes: Partial<Task> = {}): Task => ({
   title: "학습 계획",
   notes: "영어 읽기",
   due: null,
+  startDate: null,
   priority: "normal",
   categoryId: null,
   createdAt: new Date().toISOString(),
@@ -82,4 +83,30 @@ describe("검색·정렬·통계", () => {
       ),
     ).toBe(0);
   });
+});
+
+it("일정 범위는 양 끝 날짜와 중간 날짜, 겹치는 검색 범위에 포함된다", async () => {
+  const { coversDay } = await import("./views");
+  const range = task("range", { startDate: "2026-10-07", due: "2026-10-12" });
+  expect(coversDay(range, "2026-10-07")).toBe(true);
+  expect(coversDay(range, "2026-10-09")).toBe(true);
+  expect(coversDay(range, "2026-10-12")).toBe(true);
+  expect(coversDay(range, "2026-10-13")).toBe(false);
+  expect(
+    selectTasks([range], {
+      ...emptyFilters,
+      from: "2026-10-08",
+      to: "2026-10-09",
+    }),
+  ).toEqual([range]);
+  expect(selectTasks([range], { ...emptyFilters, from: "2026-10-13" })).toEqual(
+    [],
+  );
+  expect(
+    selectTasks([range], {
+      ...emptyFilters,
+      from: "2026-10-11",
+      to: "2026-10-08",
+    }),
+  ).toEqual([]);
 });

@@ -9,6 +9,7 @@ const fields: Fields = {
   title: "시험 준비",
   notes: "메모",
   due: "2026-01-31",
+  startDate: null,
   categoryId: "study",
   priority: "normal",
 };
@@ -294,4 +295,125 @@ describe("복원 후 오래된 편집 보호", () => {
       expect(() => validateBackup(JSON.stringify(raw))).toThrow();
     },
   );
+});
+
+describe("일정 범위와 완료 시 중복 방지", () => {
+  it("일반 작업 체크·취소·재체크는 ID와 작업 개수를 유지한다", async () => {
+    await service.save(fields, null);
+    const id = (await first()).id;
+    for (let i = 0; i < 10; i++) await service.toggle(await first());
+    expect(await db.tasks.count()).toBe(1);
+    expect((await first()).id).toBe(id);
+    expect((await first()).completedAt).toBeNull();
+  });
+  it("일반 작업 동시 체크는 새 레코드를 추가하지 않는다", async () => {
+    await service.save(fields, null);
+    const original = await first();
+    const results = await Promise.allSettled([
+      service.toggle(original),
+      service.toggle(original),
+    ]);
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    expect(await db.tasks.count()).toBe(1);
+  });
+  it("시작·종료일을 저장하고 잘못된 범위는 거부한다", async () => {
+    await service.save({ ...fields, startDate: "2026-01-25" }, null);
+    expect((await first()).startDate).toBe("2026-01-25");
+    await expect(
+      service.save({ ...fields, startDate: "2026-02-01" }, null),
+    ).rejects.toThrow("시작일");
+    await expect(
+      service.save({ ...fields, startDate: "2026-01-01", due: null }, null),
+    ).rejects.toThrow("종료일");
+    await expect(
+      service.save({ ...fields, startDate: "2026-02-30" }, null),
+    ).rejects.toThrow();
+  });
+  it("반복 범위는 다음 종료일에 맞춰 같은 기간 길이로 이동한다", async () => {
+    await service.save({ ...fields, startDate: "2026-01-25" }, "monthly");
+    const original = await first();
+    expect(await service.toggle(original, new Date(2026, 0, 31, 12))).toBe(
+      "2026-02-28",
+    );
+    const next = (await db.tasks.get(
+      (await db.tasks.get(original.id))!.nextId!,
+    ))!;
+    expect(next.startDate).toBe("2026-02-22");
+    expect(next.due).toBe("2026-02-28");
+  });
+  it("기간을 수정하면 이미 생성된 미래 일정의 시작일도 이동한다", async () => {
+    await service.save({ ...fields, startDate: "2026-01-25" }, "monthly");
+    const original = await first();
+    await service.toggle(original, new Date(2026, 0, 31, 12));
+    await service.toggle((await db.tasks.get(original.id))!);
+    await service.save(
+      { ...fields, startDate: "2026-01-28" },
+      "monthly",
+      (await db.tasks.get(original.id))!,
+    );
+    const parent = (await db.tasks.get(original.id))!;
+    expect((await db.tasks.get(parent.nextId!))!.startDate).toBe("2026-02-25");
+  });
+  it("기간 백업은 복원하고 역전된 기간은 거부한다", async () => {
+    await service.save({ ...fields, startDate: "2026-01-25" }, "monthly");
+    const backup = await exportBackup(db);
+    expect(backup.formatVersion).toBe(2);
+    await restoreBackup(backup, db);
+    expect((await first()).startDate).toBe("2026-01-25");
+    backup.tasks[0].startDate = "2026-02-01";
+    expect(() => validateBackup(JSON.stringify(backup))).toThrow();
+  });
+  it("이전 형식 1 백업은 하루 일정으로 안전하게 변환한다", async () => {
+    await service.save(fields, "monthly");
+    const legacy = JSON.parse(JSON.stringify(await exportBackup(db)));
+    legacy.formatVersion = 1;
+    for (const task of legacy.tasks) delete task.startDate;
+    for (const group of legacy.groups) delete group.fields.startDate;
+    const migrated = validateBackup(JSON.stringify(legacy));
+    expect(migrated.formatVersion).toBe(2);
+    expect(migrated.tasks[0].startDate).toBeNull();
+    expect(migrated.groups[0].fields.startDate).toBeNull();
+    await restoreBackup(migrated, db);
+    expect((await first()).title).toBe(fields.title);
+  });
+  it("기존 버전 1 DB의 작업과 반복 그룹을 보존해 업그레이드한다", async () => {
+    const { default: Dexie } = await import("dexie");
+    await service.save(fields, "monthly");
+    const legacy = JSON.parse(JSON.stringify(await exportBackup(db)));
+    for (const task of legacy.tasks) delete task.startDate;
+    for (const group of legacy.groups) delete group.fields.startDate;
+    const name = `test-migration-${crypto.randomUUID()}`;
+    const old = new Dexie(name);
+    old
+      .version(1)
+      .stores({
+        tasks: "id, due, categoryId, groupId, order, [groupId+sequence]",
+        categories: "id, &name",
+        groups: "id",
+        settings: "id",
+      });
+    await old.open();
+    await old.table("tasks").bulkAdd(legacy.tasks);
+    await old.table("categories").bulkAdd(legacy.categories);
+    await old.table("groups").bulkAdd(legacy.groups);
+    await old.table("settings").bulkAdd(legacy.settings);
+    old.close();
+    const upgraded = new TaskDatabase(name);
+    try {
+      await upgraded.open();
+      expect(upgraded.verno).toBe(2);
+      expect(
+        (await upgraded.tasks.toCollection().first())!.startDate,
+      ).toBeNull();
+      expect(
+        (await upgraded.groups.toCollection().first())!.fields.startDate,
+      ).toBeNull();
+      expect((await upgraded.tasks.toCollection().first())!.id).toBe(
+        legacy.tasks[0].id,
+      );
+      validateBackup(JSON.stringify(await exportBackup(upgraded)));
+    } finally {
+      await upgraded.delete();
+    }
+  });
 });

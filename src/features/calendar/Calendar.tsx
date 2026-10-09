@@ -13,6 +13,7 @@ import {
 } from "date-fns";
 import { ko } from "date-fns/locale";
 import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
+import { coversDay } from "../../utils/views";
 import { localDay } from "../../utils/dates";
 import type { Task } from "../../types";
 export function Calendar({
@@ -66,7 +67,7 @@ export function Calendar({
           ))}
           {days.map((day) => {
             const key = localDay(day);
-            const items = tasks.filter((t) => t.due === key);
+            const items = tasks.filter((t) => coversDay(t, key));
             return (
               <button
                 key={key}
@@ -103,7 +104,7 @@ export function Calendar({
             <Plus size={16} />이 날짜에 추가
           </button>
         </div>
-        {renderList(tasks.filter((t) => t.due === selected))}
+        {renderList(tasks.filter((t) => coversDay(t, selected)))}
       </section>
     </>
   );

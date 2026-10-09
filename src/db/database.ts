@@ -13,6 +13,28 @@ export class TaskDatabase extends Dexie {
       groups: "id",
       settings: "id",
     });
+    this.version(2)
+      .stores({
+        tasks:
+          "id, startDate, due, categoryId, groupId, order, [groupId+sequence]",
+        categories: "id, &name",
+        groups: "id",
+        settings: "id",
+      })
+      .upgrade(async (tx) => {
+        await tx
+          .table("tasks")
+          .toCollection()
+          .modify((task) => {
+            task.startDate ??= null;
+          });
+        await tx
+          .table("groups")
+          .toCollection()
+          .modify((group) => {
+            group.fields.startDate ??= null;
+          });
+      });
     this.on("populate", async (tx) => {
       await tx.table<Category>("categories").bulkAdd([
         {

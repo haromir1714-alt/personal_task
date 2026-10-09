@@ -5,6 +5,7 @@ export interface Fields {
   title: string;
   notes: string;
   due: string | null;
+  startDate: string | null;
   priority: Priority;
   categoryId: string | null;
 }
@@ -42,7 +43,7 @@ export interface Setting {
   value: Theme;
 }
 export interface Backup {
-  formatVersion: 1;
+  formatVersion: 2;
   createdAt: string;
   tasks: Task[];
   categories: Category[];

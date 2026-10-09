@@ -29,7 +29,10 @@ export const emptyFilters: Filters = {
   undated: false,
   sort: "due-asc",
 };
+export const coversDay = (task: Task, day: string) =>
+  !!task.due && (task.startDate ?? task.due) <= day && day <= task.due;
 export function selectTasks(tasks: Task[], f: Filters) {
+  if (f.from && f.to && f.from > f.to) return [];
   const rank = { high: 0, normal: 1, low: 2 };
   return tasks
     .filter(
@@ -43,7 +46,7 @@ export function selectTasks(tasks: Task[], f: Filters) {
         (f.priority === "all" || t.priority === f.priority) &&
         (!f.undated || !t.due) &&
         (!f.from || (!!t.due && t.due >= f.from)) &&
-        (!f.to || (!!t.due && t.due <= f.to)),
+        (!f.to || (!!t.due && (t.startDate ?? t.due) <= f.to)),
     )
     .sort((a, b) => {
       if (f.sort === "custom") return a.order - b.order;
@@ -87,7 +90,9 @@ export const upcoming = (tasks: Task[], today: string) =>
       (t) =>
         !t.completedAt &&
         t.due &&
-        t.due > today &&
-        t.due <= localDay(addDays(parseISO(today), 7)),
+        (t.startDate ?? t.due) > today &&
+        (t.startDate ?? t.due) <= localDay(addDays(parseISO(today), 7)),
     )
-    .sort((a, b) => a.due!.localeCompare(b.due!));
+    .sort((a, b) =>
+      (a.startDate ?? a.due!).localeCompare(b.startDate ?? b.due!),
+    );

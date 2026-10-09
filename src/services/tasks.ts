@@ -1,13 +1,39 @@
+import { addDays, differenceInCalendarDays, parseISO } from "date-fns";
 import type { Fields, Frequency, Task, Category } from "../types";
 import { db, type TaskDatabase } from "../db/database";
 import { localDay, validDay } from "../utils/dates";
 import { nextOccurrence } from "./recurrence";
 export const conflictMessage =
   "다른 탭 또는 반복 일정에서 변경된 데이터입니다. 창을 닫고 최신 내용을 다시 확인해 주세요.";
+export function shiftedStart(
+  fields: Fields,
+  due: string | null,
+): string | null {
+  return fields.startDate && fields.due && due
+    ? localDay(
+        addDays(
+          parseISO(due),
+          -differenceInCalendarDays(
+            parseISO(fields.due),
+            parseISO(fields.startDate),
+          ),
+        ),
+      )
+    : null;
+}
 function validate(fields: Fields, frequency: Frequency | null) {
   if (!fields.title.trim()) throw new Error("제목을 입력해 주세요.");
   if (fields.due !== null && !validDay(fields.due))
     throw new Error("유효한 마감일을 입력해 주세요.");
+  if (
+    fields.startDate !== null &&
+    (!validDay(fields.startDate) ||
+      !fields.due ||
+      fields.startDate > fields.due)
+  )
+    throw new Error(
+      "시작일과 종료일을 확인해 주세요. 시작일은 종료일 이후일 수 없습니다.",
+    );
   if (frequency && !fields.due)
     throw new Error("반복 일정에는 마감일이 필요합니다.");
 }
@@ -103,6 +129,7 @@ export function taskService(database: TaskDatabase = db) {
                 ...task,
                 ...values,
                 due,
+                startDate: shiftedStart(values, due),
                 version: task.version + 1,
                 updatedAt: now,
                 groupRevision: revision,
@@ -140,7 +167,7 @@ export function taskService(database: TaskDatabase = db) {
       );
     },
     async toggle(original: Task, now = new Date()) {
-      await database.transaction(
+      return database.transaction(
         "rw",
         database.tasks,
         database.groups,
@@ -158,8 +185,9 @@ export function taskService(database: TaskDatabase = db) {
               updatedAt: stamp,
               version: task.version + 1,
             });
-            return;
+            return null;
           }
+          let createdDue: string | null = null;
           let nextId = task.nextId;
           let successorCreated = task.successorCreated;
           const group = task.groupId
@@ -173,12 +201,14 @@ export function taskService(database: TaskDatabase = db) {
               task.due!,
             );
             const max = await database.tasks.orderBy("order").last();
+            createdDue = due;
             nextId = crypto.randomUUID();
             successorCreated = true;
             await database.tasks.add({
               ...group.fields,
               id: nextId,
               due,
+              startDate: shiftedStart(group.fields, due),
               createdAt: stamp,
               updatedAt: stamp,
               completedAt: null,
@@ -200,6 +230,7 @@ export function taskService(database: TaskDatabase = db) {
             nextId,
             successorCreated,
           });
+          return createdDue;
         },
       );
     },

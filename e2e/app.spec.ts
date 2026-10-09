@@ -15,6 +15,7 @@ async function allTasks(page: Page) {
   await page.getByRole("link", { name: "전체 할 일", exact: true }).click();
 }
 test.beforeEach(async ({ page }) => {
+  await page.clock.setFixedTime(new Date("2026-10-09T03:00:00Z"));
   await page.goto("/");
   await expect(
     page.getByRole("heading", { name: "대시보드", exact: true }),
@@ -213,7 +214,7 @@ test("오늘과 기한 초과 구분, 완료 통계 갱신", async ({ page }) =>
   await add(page, "오늘 계획", today);
   await add(page, "밀린 계획", "2020-01-01");
   await page.getByRole("link", { name: /^오늘의 할 일/ }).click();
-  await expect(page.getByRole("heading", { name: /오늘 마감/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /오늘 일정/ })).toBeVisible();
   await expect(
     page.getByRole("heading", { name: /기한이 지난/ }),
   ).toBeVisible();
@@ -374,24 +375,143 @@ test("브라우저 프로세스 종료 및 재실행 후 데이터 보존", asyn
   }
 });
 
-test('마우스 드래그 순서 변경과 저장', async ({ page }) => {
-  await add(page, '드래그 첫 번째');
-  await add(page, '드래그 두 번째');
+test("마우스 드래그 순서 변경과 저장", async ({ page }) => {
+  await add(page, "드래그 첫 번째");
+  await add(page, "드래그 두 번째");
   await allTasks(page);
-  await page.getByLabel('정렬', { exact: true }).selectOption('custom');
-  const handle = page.getByRole('button', { name: '드래그 첫 번째 순서 이동' });
+  await page.getByLabel("정렬", { exact: true }).selectOption("custom");
+  const handle = page.getByRole("button", { name: "드래그 첫 번째 순서 이동" });
   const first = await handle.boundingBox();
-  const second = await page.getByRole('button', { name: '드래그 두 번째 순서 이동' }).boundingBox();
-  if (!first || !second) throw new Error('드래그 핸들이 없습니다.');
+  const second = await page
+    .getByRole("button", { name: "드래그 두 번째 순서 이동" })
+    .boundingBox();
+  if (!first || !second) throw new Error("드래그 핸들이 없습니다.");
   await page.mouse.move(first.x + first.width / 2, first.y + first.height / 2);
   await page.mouse.down();
-  await page.mouse.move(first.x + first.width / 2, first.y + first.height / 2 + 12);
-  await expect(handle).toHaveAttribute('aria-pressed', 'true');
-  await page.mouse.move(second.x + second.width / 2, second.y + second.height / 2, { steps: 10 });
-  await expect(page.getByRole('status')).toContainText('2번째 위치');
+  await page.mouse.move(
+    first.x + first.width / 2,
+    first.y + first.height / 2 + 12,
+  );
+  await expect(handle).toHaveAttribute("aria-pressed", "true");
+  await page.mouse.move(
+    second.x + second.width / 2,
+    second.y + second.height / 2,
+    { steps: 10 },
+  );
+  await expect(page.getByRole("status")).toContainText("2번째 위치");
   await page.mouse.up();
-  await expect(page.locator('.task-body strong')).toHaveText(['드래그 두 번째', '드래그 첫 번째']);
+  await expect(page.locator(".task-body strong")).toHaveText([
+    "드래그 두 번째",
+    "드래그 첫 번째",
+  ]);
   await page.reload();
-  await page.getByLabel('정렬', { exact: true }).selectOption('custom');
-  await expect(page.locator('.task-body strong')).toHaveText(['드래그 두 번째', '드래그 첫 번째']);
+  await page.getByLabel("정렬", { exact: true }).selectOption("custom");
+  await expect(page.locator(".task-body strong")).toHaveText([
+    "드래그 두 번째",
+    "드래그 첫 번째",
+  ]);
+});
+
+test("일반 할 일은 반복 체크해도 복사되지 않고 반복만 다음 회차를 표시한다", async ({
+  page,
+}) => {
+  await add(page, "일반 체크 검사");
+  await allTasks(page);
+  const check = page.getByRole("checkbox", { name: "일반 체크 검사 완료" });
+  await check.click();
+  await expect(check).toBeChecked();
+  await expect(page.locator(".task-row")).toHaveCount(1);
+  await expect(page.getByText("완료됨", { exact: true })).toBeVisible();
+  await check.click();
+  await expect(check).not.toBeChecked();
+  await check.click();
+  await expect(check).toBeChecked();
+  await expect(page.locator(".task-row")).toHaveCount(1);
+  await add(page, "반복 체크 검사", "2026-10-09", "monthly");
+  await page
+    .getByRole("checkbox", { name: "반복 체크 검사 완료" })
+    .first()
+    .click();
+  await expect(page.locator(".task-row")).toHaveCount(3);
+  await expect(page.getByText("매월 · 2회차", { exact: true })).toBeVisible();
+  await expect(page.getByText(/완료했습니다. 다음 반복 일정은/)).toBeVisible();
+});
+
+test("일정 범위를 저장하고 캘린더·오늘·검색에 반영한다", async ({ page }) => {
+  await page
+    .getByRole("button", { name: "할 일 추가", exact: true })
+    .first()
+    .click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByLabel("제목", { exact: true }).fill("기간 프로젝트");
+  await dialog.getByLabel("시작일", { exact: true }).fill("2026-10-07");
+  await dialog.getByLabel("마감일", { exact: true }).fill("2026-10-12");
+  await dialog.getByRole("button", { name: "저장", exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+  await page.getByRole("link", { name: "월간 캘린더", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "2026-10-08", exact: true }),
+  ).toContainText("기간 프로젝트");
+  await page.getByRole("button", { name: "2026-10-08", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "기간 프로젝트 수정" }),
+  ).toBeVisible();
+  await allTasks(page);
+  await page.getByLabel("시작일", { exact: true }).fill("2026-10-08");
+  await page.getByLabel("종료일", { exact: true }).fill("2026-10-09");
+  await expect(
+    page.getByRole("button", { name: "기간 프로젝트 수정" }),
+  ).toBeVisible();
+  await page.reload();
+  await page.getByRole("button", { name: "기간 프로젝트 수정" }).click();
+  await expect(
+    page.getByRole("dialog").getByLabel("시작일", { exact: true }),
+  ).toHaveValue("2026-10-07");
+  await page
+    .getByRole("dialog")
+    .getByLabel("시작일", { exact: true })
+    .fill("2026-10-13");
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "저장", exact: true })
+    .click();
+  await expect(page.getByRole("dialog").getByRole("alert")).toContainText(
+    "시작일",
+  );
+});
+
+test("전체 목록에서 카테고리 관리로 이동해 이름·색상 변경과 삭제를 한다", async ({
+  page,
+}) => {
+  await allTasks(page);
+  await page
+    .getByRole("main")
+    .getByRole("button", { name: "카테고리 관리", exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "카테고리 관리", level: 1 }),
+  ).toBeVisible();
+  await page.getByLabel("카테고리 이름").fill("자유 분류");
+  await page.getByRole("button", { name: "추가", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "자유 분류 카테고리 수정" }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "자유 분류 카테고리 수정" }).click();
+  await page.getByLabel("카테고리 이름").fill("내 분류");
+  await page.getByLabel("색상", { exact: true }).fill("#ff0000");
+  await page.getByRole("button", { name: "변경 저장" }).click();
+  await expect(
+    page.locator(".category-list").getByText("내 분류", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page
+      .locator(".category-list > div")
+      .filter({ hasText: "내 분류" })
+      .locator("i"),
+  ).toHaveCSS("background-color", "rgb(255, 0, 0)");
+  page.once("dialog", (d) => d.accept());
+  await page.getByRole("button", { name: "내 분류 카테고리 삭제" }).click();
+  await expect(
+    page.getByRole("button", { name: "내 분류 카테고리 수정" }),
+  ).toHaveCount(0);
 });

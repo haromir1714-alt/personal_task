@@ -1160,3 +1160,24 @@ footer {
 .file-input {
   display: none;
 }
+
+.task-completion-state {
+  display: inline-block;
+  color: var(--muted);
+  font-size: 10px;
+  margin-top: 5px;
+}
+.completed .task-completion-state {
+  color: #14b8a6;
+}
+.completion-notice {
+  display: block;
+  color: var(--accent);
+  font-size: 11px;
+  margin-top: 6px;
+  font-weight: 400;
+}
+.category-editor-heading {
+  font-size: 14px;
+  padding-top: 22px;
+}

@@ -1,3 +1,4 @@
+import { CategoryManager } from "../features/categories/CategoryManager";
 import { lazy, Suspense, useEffect, useState } from "react";
 import {
   NavLink,
@@ -30,6 +31,7 @@ import { ko } from "date-fns/locale";
 import { db } from "../db/database";
 import { localDay } from "../utils/dates";
 import {
+  coversDay,
   emptyFilters,
   selectTasks,
   upcoming,
@@ -121,13 +123,14 @@ export default function App() {
     );
   const tasks = data.tasks;
   const pending = tasks.filter((t) => !t.completedAt);
-  const dueToday = pending.filter((t) => t.due === today);
+  const dueToday = pending.filter((t) => coversDay(t, today));
   const late = pending.filter((t) => t.due && t.due < today);
   const next = upcoming(tasks, today);
   const list = (items: Task[], drag = false) => (
     <TaskList
       items={items}
       categories={data.categories}
+      groups={data.groups}
       edit={edit}
       run={run}
       drag={drag}
@@ -144,7 +147,9 @@ export default function App() {
     !filters.to &&
     !filters.undated;
   const title =
-    pages.find((p) => p.path === location.pathname)?.name ?? "대시보드";
+    location.pathname === "/categories"
+      ? "카테고리 관리"
+      : (pages.find((p) => p.path === location.pathname)?.name ?? "대시보드");
   const section = (name: string, items: Task[], extra?: React.ReactNode) => (
     <section className="panel">
       <div className="section-head">
@@ -210,7 +215,7 @@ export default function App() {
             className="icon-button"
             aria-label="카테고리 관리"
             onClick={() => {
-              navigate("/settings");
+              navigate("/categories");
               setMobile(false);
             }}
           >
@@ -383,7 +388,7 @@ export default function App() {
                     마감 {dueToday.length}개
                   </p>
                 </div>
-                {section("오늘 마감", dueToday)}
+                {section("오늘 일정", dueToday)}
                 {section("기한이 지난 미완료", late)}
               </>
             }
@@ -393,6 +398,9 @@ export default function App() {
             element={
               <section className="panel">
                 <div className="section-head">
+                  <button onClick={() => navigate("/categories")}>
+                    카테고리 관리
+                  </button>
                   <h2>
                     나의 모든 계획
                     <span className="count-badge">{tasks.length}</span>
@@ -451,6 +459,10 @@ export default function App() {
                 run={run}
               />
             }
+          />
+          <Route
+            path="/categories"
+            element={<CategoryManager categories={data.categories} run={run} />}
           />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

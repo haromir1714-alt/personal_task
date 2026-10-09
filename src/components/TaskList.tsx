@@ -26,13 +26,14 @@ import {
   sortableKeyboardCoordinates,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import type { Task, Category } from "../types";
+import type { Task, Category, Group } from "../types";
 import { tasks as service } from "../services/tasks";
 import { localDay } from "../utils/dates";
 const priorities = { high: "높음", normal: "보통", low: "낮음" };
 function Row({
   task,
   categories,
+  groups,
   edit,
   run,
   drag,
@@ -42,6 +43,7 @@ function Row({
 }: {
   task: Task;
   categories: Category[];
+  groups: Group[];
   edit: (t: Task) => void;
   run: (op: () => Promise<void>) => void;
   drag: boolean;
@@ -60,6 +62,8 @@ function Row({
   const category = categories.find((c) => c.id === task.categoryId);
   const late = !task.completedAt && !!task.due && task.due < localDay();
   const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState("");
+  const group = groups.find((g) => g.id === task.groupId);
   return (
     <article
       ref={setNodeRef}
@@ -87,7 +91,14 @@ function Row({
           setBusy(true);
           run(async () => {
             try {
-              await service.toggle(task);
+              const nextDue = await service.toggle(task);
+              setNotice(
+                task.completedAt
+                  ? "완료를 취소했습니다."
+                  : nextDue
+                    ? `완료했습니다. 다음 반복 일정은 ${nextDue}입니다.`
+                    : "완료했습니다.",
+              );
             } finally {
               setBusy(false);
             }
@@ -107,18 +118,33 @@ function Row({
           {task.due && (
             <span className={late ? "late" : ""}>
               <CalendarDays size={13} />
-              {task.due}
+              {task.startDate && task.startDate !== task.due
+                ? `${task.startDate} ~ ${task.due}`
+                : task.due}
               {late ? " · 기한 초과" : ""}
             </span>
           )}
           {task.groupId && (
             <span>
               <Repeat2 size={13} />
-              반복
+              {group?.active
+                ? { daily: "매일", weekly: "매주", monthly: "매월" }[
+                    group.frequency
+                  ]
+                : "반복 종료"}{" "}
+              · {task.sequence + 1}회차
             </span>
           )}
           {task.notes && <span className="notes-preview">{task.notes}</span>}
         </span>
+        <span className="task-completion-state">
+          {task.completedAt ? "완료됨" : "미완료"}
+        </span>
+        {notice && (
+          <span className="completion-notice" aria-live="polite">
+            {notice}
+          </span>
+        )}
       </button>
       <span className={`priority ${task.priority}`}>
         {priorities[task.priority]}
@@ -172,6 +198,7 @@ function Row({
 export function TaskList({
   items,
   categories,
+  groups,
   edit,
   run,
   drag = false,
@@ -179,6 +206,7 @@ export function TaskList({
 }: {
   items: Task[];
   categories: Category[];
+  groups: Group[];
   edit: (t: Task) => void;
   run: (op: () => Promise<void>) => void;
   drag?: boolean;
@@ -253,6 +281,7 @@ export function TaskList({
               key={t.id}
               task={t}
               categories={categories}
+              groups={groups}
               edit={edit}
               run={run}
               drag={drag}

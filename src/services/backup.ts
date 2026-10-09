@@ -24,6 +24,10 @@ function fields(value: unknown): value is Fields {
     !!value.title.trim() &&
     typeof value.notes === "string" &&
     (value.due === null || validDay(value.due)) &&
+    (value.startDate === null ||
+      (validDay(value.startDate) &&
+        validDay(value.due) &&
+        value.startDate <= value.due)) &&
     priority(value.priority) &&
     nullableId(value.categoryId)
   );
@@ -40,7 +44,7 @@ export function validateBackup(text: string): Backup {
   }
   if (
     !record(raw) ||
-    raw.formatVersion !== 1 ||
+    (raw.formatVersion !== 1 && raw.formatVersion !== 2) ||
     !validTime(raw.createdAt) ||
     !Array.isArray(raw.tasks) ||
     !Array.isArray(raw.categories) ||
@@ -48,7 +52,15 @@ export function validateBackup(text: string): Backup {
     !Array.isArray(raw.settings)
   )
     fail();
-  const tasks: Task[] = raw.tasks.map((t: unknown) => {
+  const taskInputs = raw.tasks.map((t) =>
+    raw.formatVersion === 1 && record(t) ? { ...t, startDate: null } : t,
+  );
+  const groupInputs = raw.groups.map((g) =>
+    raw.formatVersion === 1 && record(g) && record(g.fields)
+      ? { ...g, fields: { ...g.fields, startDate: null } }
+      : g,
+  );
+  const tasks: Task[] = taskInputs.map((t: unknown) => {
     if (
       !record(t) ||
       !fields(t) ||
@@ -73,6 +85,7 @@ export function validateBackup(text: string): Backup {
       title: t.title,
       notes: t.notes,
       due: t.due,
+      startDate: t.startDate,
       priority: t.priority,
       categoryId: t.categoryId,
       createdAt: t.createdAt,
@@ -108,7 +121,7 @@ export function validateBackup(text: string): Backup {
       version: c.version as number,
     };
   });
-  const groups: Group[] = raw.groups.map((g: unknown) => {
+  const groups: Group[] = groupInputs.map((g: unknown) => {
     if (
       !record(g) ||
       !id(g.id) ||
@@ -190,7 +203,7 @@ export function validateBackup(text: string): Backup {
     }
   }
   return {
-    formatVersion: 1,
+    formatVersion: 2,
     createdAt: raw.createdAt,
     tasks,
     categories,
@@ -208,7 +221,7 @@ export async function exportBackup(
     database.groups,
     database.settings,
     async () => ({
-      formatVersion: 1 as const,
+      formatVersion: 2 as const,
       createdAt: new Date().toISOString(),
       tasks: await database.tasks.toArray(),
       categories: await database.categories.toArray(),
